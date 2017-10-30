@@ -1,7 +1,6 @@
 from flask import Flask, request
 import urllib3
 import telepot
-import pickle
 import random
 from operator import itemgetter
 from questions import questions_list
@@ -34,8 +33,8 @@ choices = {}
 ranking = {}
 broadcast_list = []
 admin = 123456789 # Telegram admin ID
-debug = False
-bot_locked = False
+debug = True
+bot_locked = True
 
 secret = "123456789" # Your chosen secret key
 bot = telepot.Bot('') # Your Telegram bot key
