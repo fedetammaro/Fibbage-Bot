@@ -12,6 +12,11 @@ La lista di domande che utilizzo nel mio bot è stata rimossa in quanto contiene
 questions_list = [("Ecco una domanda", "Risposta corretta alla domanda"), ("Ecco una seconda domanda", "Risposta corretta alla domanda")]
 ```
 
+#### Come utilizzare il bot
+È possibile creare una partita tramite il comando */create*, il quale crea la partita e assegna un ID affinchè gli altri giocatori possano unirsi tramite il comando */join* seguito dall'ID della partita.
+Una volta che tutti i partecipanti si sono uniti, si può far partire il gioco tramite il comando */start_game*. Da quel momento tutto si svolge secondo le dinamiche del gioco, che prevedono che ciascuna domanda sia ottenuta tramite il comando */next*.
+Si può interrompere la partita in qualsiasi momento tramite il comando */end_game* oppure la partita termina normalmente alla fine del terzo round (dopo 9 domande). I giocatori possono modificare la risposta che hanno inserito tramite il comando */edit*.
+
 ---
 
 # Fibbage Telegram Bot
