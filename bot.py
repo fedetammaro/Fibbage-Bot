@@ -4,8 +4,10 @@ import telepot
 import random
 from operator import itemgetter
 from questions import questions_list
+import _mysql
+import myconf
 
-proxy_url = "http://proxy.server:3128"
+proxy_url = myconf.proxy_url
 telepot.api._pools = {
     'default': urllib3.ProxyManager(
         proxy_url=proxy_url,
@@ -32,14 +34,14 @@ answers = {}
 choices = {}
 ranking = {}
 broadcast_list = []
-admin = 123456789 # Telegram admin ID
+admin = myconf.admin
 debug = True
 bot_locked = False
 
-secret = "123456789" # Your chosen secret key
-bot = telepot.Bot('') # Your Telegram bot key
+secret = myconf.secret
+bot = telepot.Bot(myconf.bot_key)
 bot.setWebhook(
-    "https://your_site.pythonanywhere.com/{}".format(secret), # Your Pythonanywhere web app url
+    myconf.webapp_url.format(secret),
     max_connections=1)
 app = Flask(__name__)
 
@@ -51,10 +53,10 @@ def parse_update(update):
     # testo, id, nome
 
 
-def welcome(update):
-    bot.sendMessage(parse_update(update)[1],
-                    "Questo bot ti permette di giocare a Fibbage assieme ai tuoi amici, meglio se dal vivo. "
-                    "Usa /start_game per iniziare una nuova partita, oppure /join [id] per entrare in un match.")
+def welcome(chat_id, username):
+    bot.sendMessage(chat_id, "Benvenuto/a " + username + "! Questo bot ti permette di giocare a Fibbage assieme ai tuoi"
+                             "amici, meglio se dal vivo. Usa /start_game per iniziare una nuova partita, oppure /join"
+                             "[id] per entrare in un match.")
 
 
 def lock_bot(chat_id):
@@ -110,11 +112,20 @@ def increase_score(chat_id, game_id, score):
         if chat_id == player[0]:
             player[1] += score
 
+            db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+            db.query('UPDATE app_users SET user_score = user_score + ' + str(score) + ' WHERE user_id = '
+                     + str(chat_id) + ';')
+            db.close()
+
 
 def increase_lies(chat_id, game_id):
     for player in ranking[game_id]:
         if chat_id == player[0]:
             player[2] += 1
+
+            db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+            db.query('UPDATE app_users SET user_lies = user_lies + 1 WHERE user_id = ' + str(chat_id) + ';')
+            db.close()
 
 
 def increase_fails(chat_id, game_id):
@@ -122,11 +133,19 @@ def increase_fails(chat_id, game_id):
         if chat_id == player[0]:
             player[3] += 1
 
+            db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+            db.query('UPDATE app_users SET user_errors = user_errors + 1 WHERE user_id = ' + str(chat_id) + ';')
+            db.close()
+
 
 def increase_correct_ones(chat_id, game_id):
     for player in ranking[game_id]:
         if chat_id == player[0]:
             player[4] += 1
+
+            db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+            db.query('UPDATE app_users SET user_corrects = user_corrects + 1 WHERE user_id = ' + str(chat_id) + ';')
+            db.close()
 
 
 def create_game(chat_id, username):
@@ -134,6 +153,7 @@ def create_game(chat_id, username):
     if chat_id in active_players:
         bot.sendMessage(chat_id, 'Sei già in una partita!')
     else:
+        add_player_db(chat_id, username)
         active_games[game_id] = {'admin': chat_id, 'players': [chat_id], 'usernames': [username], 'phase': 0,
                                  'round': 1, 'questions': [],
                                  'seen': []}  # Questions contiene gli indici delle domande già utilizzate
@@ -173,6 +193,7 @@ def add_questions(text, chat_id):
 
 
 def join_game(text, chat_id, username):
+    add_player_db(chat_id, username)
     game_id = text.strip('/join ')
     try:
         game_id = int(game_id)
@@ -224,8 +245,21 @@ def end_game(chat_id):
 def print_ranking(game_id, game_over):
     ranking_list = sorted(ranking[game_id], key=itemgetter(1), reverse=True)
     ranking_message = ''
+    index = 0
     for player in ranking_list:
+        if game_over:
+            if index == 0:
+                db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+                db.query('UPDATE app_users SET user_wins = user_wins + 1, user_games = user_games + 1 WHERE user_id = '
+                         + str(player[0]) + ';')
+                db.close()
+            else:
+                db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+                db.query('UPDATE app_users SET user_games = user_games + 1 WHERE user_id = ' + str(player[0]) + ';')
+                db.close()
+
         ranking_message += get_username(player[0]) + ' - ' + str(player[1]) + ' punti\n'
+        index += 1
     if game_over:
         best_liar = sorted(ranking[game_id], key=itemgetter(2), reverse=True)[0]
         most_guillible = sorted(ranking[game_id], key=itemgetter(3), reverse=True)[0]
@@ -262,7 +296,7 @@ def parse_message(text, chat_id, username, message_id):
                         return
                     else:
                         bot.sendMessage(chat_id, "Qualcun altro ha già inserito tale risposta! Mettine un'altra... "
-                                                 "e ricordati di non farti ingannare!_", parse_mode='Markdown',
+                                        "_e ricordati di non farti ingannare!_", parse_mode='Markdown',
                                         reply_to_message_id=message_id)
                         return
             answers[game_id].append((chat_id, text))
@@ -409,6 +443,34 @@ def id_add(chat_id, username):
         id_username.append(entry)
 
 
+def add_player_db(chat_id, username):
+    db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+
+    try:
+        db.query('INSERT INTO app_users (user_id, user_name, user_games, user_score, user_wins, user_lies,'
+                 ' user_corrects, user_errors) VALUES (' + str(chat_id) + ', "' + username + '", 0, 0, 0, 0, 0, 0)')
+    except:
+        db.query('UPDATE app_users SET user_name = ' + username + ' WHERE user_id = ' + chat_id + ';')
+        db.close()
+        return
+    db.close()
+
+
+def send_stats(chat_id):
+    db = _mysql.connect(host=myconf.db_host, user=myconf.db_user, passwd=myconf.db_pass, db=myconf.db_name)
+
+    try:
+        db.query('SELECT * FROM app_users WHERE user_id = ' + str(chat_id) + ';')
+    except:
+        bot.sendMessage(chat_id, "Devi giocare almeno una partita prima di poter vedere le tue statistiche!")
+        db.close()
+        return
+    r = db.store_result()
+    result = r.fetch_row(how=0, maxrows=1)
+    bot.sendMessage(chat_id, "Your nickname: " + str(result[0][1])[2:-1] + "\n")
+    db.close()
+
+
 @app.route('/{}'.format(secret), methods=["POST"])
 def telegram_webhook():
     update = request.get_json()
@@ -430,7 +492,7 @@ def telegram_webhook():
             id_add(chat_id, username)
 
             if text == '/start':
-                welcome(update)
+                welcome(chat_id, username)
             elif bot_locked and (chat_id != admin):
                 bot.sendMessage(chat_id, 'Il bot è attualmente bloccato e non può essere utilizzato. Contatta @Sfullez '
                                          'per chiedere di sbloccarlo.')
@@ -460,6 +522,8 @@ def telegram_webhook():
                     end_game(chat_id)
                 elif text == '/show_structures':
                     send_debug_structures(chat_id)
+                elif text == '/my_stats':
+                    send_stats(chat_id)
                 else:
                     parse_message(text, chat_id, username, message_id)
         except KeyError:
